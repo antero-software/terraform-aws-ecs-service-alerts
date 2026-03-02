@@ -1,26 +1,35 @@
 # terraform-aws-ecs-service-alerts
 
-Terraform module that sends a Slack alert when an ECS service is unable to consistently start tasks — i.e. when the `SERVICE_TASK_START_IMPAIRED` event fires.
+Terraform module that sends Slack alerts for two ECS failure scenarios:
 
-Useful for catching bad deployments (broken config, image pull failures, capacity issues) before they cause prolonged downtime.
+- **Service start impaired** — ECS service is unable to consistently start tasks (`SERVICE_TASK_START_IMPAIRED`)
+- **Container crash** — a running container exits with a non-zero exit code (including OOM kills)
+
+Useful for catching bad deployments, image pull failures, capacity issues, and runtime crashes before they cause prolonged downtime.
 
 ## Architecture
 
 ```
-ECS service events
-       │
-       ▼
-CloudWatch Event Rule         ← filters for SERVICE_TASK_START_IMPAIRED only
-       │
-       ▼
-AWS Lambda (Python 3.12)
-       │
-       ▼
-Slack webhook
+ECS events
+     │
+     ├─── ECS Service Action ──────────────────────────────────┐
+     │    (SERVICE_TASK_START_IMPAIRED)                        │
+     │                                                         │
+     └─── ECS Task State Change ───────────────────────────────┤
+          (lastStatus=STOPPED, stopCode=EssentialContainerExited)│
+                                                               ▼
+                                                  CloudWatch Event Rules
+                                                               │
+                                                               ▼
+                                                  AWS Lambda (Python 3.12)
+                                                               │
+                                                               ▼
+                                                        Slack webhook
 ```
 
-## Example Slack Alert
+## Example Slack Alerts
 
+**Service start impaired:**
 ```
 🚨 myapp-production-ecs-tasks-alert
 
@@ -28,6 +37,25 @@ Slack webhook
 ┃
 ┃ image_inferrer is unable to consistently start tasks successfully.
 ┃ View in console →
+┃
+┃ Recent Events
+┃ • (service image_inferrer) failed to launch a task with (error EssentialContainerExited).
+┃ • service image_inferrer: task definition image_inferrer:42 does not exist.
+```
+
+**Container crash / OOM kill:**
+```
+🚨 myapp-production-ecs-tasks-alert
+
+┃ my-cluster / image_inferrer — task crashed
+┃
+┃ View in console →
+┃
+┃ Stopped Reason
+┃ Essential container in task exited
+┃
+┃ Crashed Containers
+┃ • api: OOM killed (exit code 137)
 ```
 
 ## Usage
@@ -66,16 +94,17 @@ module "ecs_service_alerts" {
 |----------------------------|----------------------------------------------------|
 | `lambda_function_arn`      | ARN of the ECS alert Lambda function               |
 | `lambda_function_name`     | Name of the ECS alert Lambda function              |
-| `cloudwatch_event_rule_arn`| ARN of the CloudWatch event rule                   |
+| `cloudwatch_event_rule_arn`| ARN of the CloudWatch event rule (service impaired)|
 
 ## Resources Created
 
-| Resource                          | Name pattern                                  |
-|-----------------------------------|-----------------------------------------------|
-| `aws_lambda_function`             | `{app_name}-{environment}-ecs-alert`          |
-| `aws_cloudwatch_log_group`        | `/aws/lambda/{app_name}-{environment}-ecs-alert` |
-| `aws_iam_role`                    | `{app_name}-{environment}-ecs-alert-role`     |
-| `aws_iam_role_policy`             | `{app_name}-{environment}-ecs-alert-policy`   |
-| `aws_cloudwatch_event_rule`       | `{app_name}-{environment}-ecs-task-impaired`  |
-| `aws_cloudwatch_event_target`     | —                                             |
-| `aws_lambda_permission`           | —                                             |
+| Resource                          | Name pattern                                         |
+|-----------------------------------|------------------------------------------------------|
+| `aws_lambda_function`             | `{app_name}-{environment}-ecs-alert`                 |
+| `aws_cloudwatch_log_group`        | `/aws/lambda/{app_name}-{environment}-ecs-alert`     |
+| `aws_iam_role`                    | `{app_name}-{environment}-ecs-alert-role`            |
+| `aws_iam_role_policy`             | `{app_name}-{environment}-ecs-alert-policy`          |
+| `aws_cloudwatch_event_rule`       | `{app_name}-{environment}-ecs-task-impaired`         |
+| `aws_cloudwatch_event_rule`       | `{app_name}-{environment}-ecs-task-crashed`          |
+| `aws_cloudwatch_event_target` ×2  | —                                                    |
+| `aws_lambda_permission` ×2        | —                                                    |
