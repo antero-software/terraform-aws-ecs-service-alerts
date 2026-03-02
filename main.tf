@@ -7,14 +7,15 @@ data "archive_file" "ecs_alert_lambda_zip" {
 resource "aws_lambda_function" "ecs_alert" {
   function_name    = "${var.app_name}-${var.environment}-ecs-alert"
   role             = aws_iam_role.ecs_alert_lambda_role.arn
-  handler          = "app.handler"
+  handler          = "app.main"
   runtime          = "python3.12"
   filename         = data.archive_file.ecs_alert_lambda_zip.output_path
   source_code_hash = data.archive_file.ecs_alert_lambda_zip.output_base64sha256
 
   environment {
     variables = {
-      ACCOUNT_NAME      = var.account_name
+      APP_NAME          = var.app_name
+      ENVIRONMENT       = var.environment
       AWS_REGION        = var.aws_region
       SLACK_WEBHOOK_URL = var.slack_webhook_url
     }
@@ -63,7 +64,7 @@ resource "aws_iam_role_policy" "ecs_alert_lambda_policy" {
           "logs:PutLogEvents"
         ]
         Resource = "arn:aws:logs:*:*:*"
-      }
+      },
     ]
   })
 }

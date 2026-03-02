@@ -28,7 +28,8 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
     if sender is None:
         sender = urllib.request.urlopen
 
-    account = os.environ["ACCOUNT_NAME"]
+    app_name = os.environ["APP_NAME"]
+    environment = os.environ["ENVIRONMENT"]
     aws_region = os.environ["AWS_REGION"]
     webhook_url = os.environ["SLACK_WEBHOOK_URL"]
 
@@ -42,7 +43,7 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
         _, cluster_name, service_name = r.split("/")
 
         slack_payload = {
-            "username": f"{account}-ecs-tasks-alert",
+            "username": f"{app_name}-{environment}-ecs-tasks-alert",
             "icon_emoji": ":rotating_light:",
             "attachments": [
                 {
