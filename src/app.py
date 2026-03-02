@@ -6,6 +6,8 @@ import urllib.request
 from urllib.error import HTTPError
 from typing import Any, Callable, Optional
 
+import boto3
+
 
 SlackSender = Callable[[urllib.request.Request], Any]
 
@@ -33,6 +35,9 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
     aws_region = os.environ["AWS_REGION"]
     webhook_url = os.environ["SLACK_WEBHOOK_URL"]
 
+    sess = boto3.Session()
+    ecs_client = sess.client("ecs", region_name=aws_region)
+
     # The 'resources' list will contain a list of ECS service ARNs, e.g.
     #
     #     arn:aws:ecs:eu-west-1:1234567890:service/pipeline/image_inferrer
@@ -42,6 +47,31 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
     for r in event["resources"]:
         _, cluster_name, service_name = r.split("/")
 
+        # Fetch the last 5 service events to surface the failure reason.
+        recent_events = []
+        try:
+            response = ecs_client.describe_services(
+                cluster=cluster_name,
+                services=[service_name],
+            )
+            services = response.get("services", [])
+            if services:
+                recent_events = [e["message"] for e in services[0].get("events", [])[:5]]
+        except Exception as e:
+            print(f"Failed to fetch ECS service events: {e}", file=sys.stderr)
+
+        fields = [
+            {
+                "value": f"{service_name} is unable to consistently start tasks successfully. <https://{aws_region}.console.aws.amazon.com/ecs/v2/clusters/{cluster_name}/services/{service_name}/deployments?region={aws_region}|View in console>"
+            }
+        ]
+
+        if recent_events:
+            fields.append({
+                "title": "Recent Events",
+                "value": "\n".join(f"• {e}" for e in recent_events),
+            })
+
         slack_payload = {
             "username": f"{app_name}-{environment}-ecs-tasks-alert",
             "icon_emoji": ":rotating_light:",
@@ -49,11 +79,7 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
                 {
                     "color": "danger",
                     "title": f"{cluster_name} / {service_name}",
-                    "fields": [
-                        {
-                            "value": f"{service_name} is unable to consistently start tasks successfully. <https://{aws_region}.console.aws.amazon.com/ecs/v2/clusters/{cluster_name}/services/{service_name}/deployments?region={aws_region}|View in console>"
-                        }
-                    ],
+                    "fields": fields,
                 }
             ],
         }

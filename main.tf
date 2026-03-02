@@ -65,6 +65,11 @@ resource "aws_iam_role_policy" "ecs_alert_lambda_policy" {
         ]
         Resource = "arn:aws:logs:*:*:*"
       },
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:DescribeServices"]
+        Resource = "*"
+      },
     ]
   })
 }
