@@ -160,7 +160,7 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
     if sender is None:
         sender = urllib.request.urlopen
 
-    app_name = os.environ["APP_NAME"]
+    app_name = os.environ["NAME_PREFIX"]
     aws_region = os.environ["AWS_REGION"]
     webhook_url = os.environ["SLACK_WEBHOOK_URL"]
 

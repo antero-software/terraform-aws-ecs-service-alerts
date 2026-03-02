@@ -64,7 +64,7 @@ ECS events
 module "ecs_service_alerts" {
   source = "git::https://github.com/your-org/terraform-aws-ecs-service-alerts.git"
 
-  app_name          = "myapp"
+  name_prefix       = "myapp"
   slack_webhook_url = var.slack_webhook_url
 }
 ```
@@ -82,7 +82,7 @@ module "ecs_service_alerts" {
 
 | Name                | Type     | Default            | Required | Description                              |
 |---------------------|----------|--------------------|----------|------------------------------------------|
-| `app_name`          | `string` | —                  | yes      | Application name                         |
+| `name_prefix`       | `string` | —                  | yes      | Prefix used for all resource names       |
 | `aws_region`        | `string` | `ap-southeast-2`   | no       | AWS region                               |
 | `slack_webhook_url` | `string` | —                  | yes      | Slack incoming webhook URL (sensitive)   |
 

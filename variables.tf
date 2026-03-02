@@ -1,6 +1,6 @@
-variable "app_name" {
+variable "name_prefix" {
   type        = string
-  description = "Application name"
+  description = "Prefix used for all resource names"
 }
 
 variable "aws_region" {
