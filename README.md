@@ -31,7 +31,7 @@ ECS events
 
 **Service start impaired:**
 ```
-🚨 myapp-production-ecs-tasks-alert
+🚨 myapp-ecs-tasks-alert
 
 ┃ my-cluster / image_inferrer
 ┃
@@ -45,7 +45,7 @@ ECS events
 
 **Container crash / OOM kill:**
 ```
-🚨 myapp-production-ecs-tasks-alert
+🚨 myapp-ecs-tasks-alert
 
 ┃ my-cluster / image_inferrer — task crashed
 ┃
@@ -65,7 +65,6 @@ module "ecs_service_alerts" {
   source = "git::https://github.com/your-org/terraform-aws-ecs-service-alerts.git"
 
   app_name          = "myapp"
-  environment       = "production"
   slack_webhook_url = var.slack_webhook_url
 }
 ```
@@ -84,7 +83,6 @@ module "ecs_service_alerts" {
 | Name                | Type     | Default            | Required | Description                              |
 |---------------------|----------|--------------------|----------|------------------------------------------|
 | `app_name`          | `string` | —                  | yes      | Application name                         |
-| `environment`       | `string` | —                  | yes      | Environment name (e.g. `production`)     |
 | `aws_region`        | `string` | `ap-southeast-2`   | no       | AWS region                               |
 | `slack_webhook_url` | `string` | —                  | yes      | Slack incoming webhook URL (sensitive)   |
 

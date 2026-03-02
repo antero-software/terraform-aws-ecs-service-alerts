@@ -5,7 +5,7 @@ data "archive_file" "ecs_alert_lambda_zip" {
 }
 
 resource "aws_lambda_function" "ecs_alert" {
-  function_name    = "${var.app_name}-${var.environment}-ecs-alert"
+  function_name    = "${var.app_name}-ecs-alert"
   role             = aws_iam_role.ecs_alert_lambda_role.arn
   handler          = "app.main"
   runtime          = "python3.12"
@@ -15,7 +15,6 @@ resource "aws_lambda_function" "ecs_alert" {
   environment {
     variables = {
       APP_NAME          = var.app_name
-      ENVIRONMENT       = var.environment
       AWS_REGION        = var.aws_region
       SLACK_WEBHOOK_URL = var.slack_webhook_url
     }
@@ -28,12 +27,12 @@ resource "aws_lambda_function" "ecs_alert" {
 }
 
 resource "aws_cloudwatch_log_group" "ecs_alert" {
-  name              = "/aws/lambda/${var.app_name}-${var.environment}-ecs-alert"
+  name              = "/aws/lambda/${var.app_name}-ecs-alert"
   retention_in_days = 30
 }
 
 resource "aws_iam_role" "ecs_alert_lambda_role" {
-  name = "${var.app_name}-${var.environment}-ecs-alert-role"
+  name = "${var.app_name}-ecs-alert-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -50,7 +49,7 @@ resource "aws_iam_role" "ecs_alert_lambda_role" {
 }
 
 resource "aws_iam_role_policy" "ecs_alert_lambda_policy" {
-  name = "${var.app_name}-${var.environment}-ecs-alert-policy"
+  name = "${var.app_name}-ecs-alert-policy"
   role = aws_iam_role.ecs_alert_lambda_role.id
 
   policy = jsonencode({
@@ -75,7 +74,7 @@ resource "aws_iam_role_policy" "ecs_alert_lambda_policy" {
 }
 
 resource "aws_cloudwatch_event_rule" "ecs_task_start_impaired" {
-  name        = "${var.app_name}-${var.environment}-ecs-task-impaired"
+  name        = "${var.app_name}-ecs-task-impaired"
   description = "Trigger lambda on ECS task start impaired events"
 
   event_pattern = jsonencode({
@@ -88,7 +87,7 @@ resource "aws_cloudwatch_event_rule" "ecs_task_start_impaired" {
 }
 
 resource "aws_cloudwatch_event_rule" "ecs_task_crashed" {
-  name        = "${var.app_name}-${var.environment}-ecs-task-crashed"
+  name        = "${var.app_name}-ecs-task-crashed"
   description = "Trigger lambda when an ECS task stops with a non-zero exit code"
 
   event_pattern = jsonencode({
