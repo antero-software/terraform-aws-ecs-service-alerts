@@ -38,7 +38,7 @@ def _send_slack(webhook_url, payload, sender):
         raise Exception(f"{err} - {err.read()}")
 
 
-def _handle_service_impaired(event, *, ecs_client, app_name, environment, aws_region, webhook_url, sender):
+def _handle_service_impaired(event, *, ecs_client, name_prefix, environment, aws_region, webhook_url, sender):
     # The 'resources' list will contain a list of ECS service ARNs, e.g.
     #
     #     arn:aws:ecs:eu-west-1:1234567890:service/pipeline/image_inferrer
@@ -79,7 +79,7 @@ def _handle_service_impaired(event, *, ecs_client, app_name, environment, aws_re
             })
 
         _send_slack(webhook_url, {
-            "username": f"{app_name}-{environment}-ecs-tasks-alert",
+            "username": f"{name_prefix}-ecs-tasks-alert",
             "icon_emoji": ":rotating_light:",
             "attachments": [
                 {
@@ -91,7 +91,7 @@ def _handle_service_impaired(event, *, ecs_client, app_name, environment, aws_re
         }, sender)
 
 
-def _handle_task_stopped(event, *, app_name, environment, aws_region, webhook_url, sender):
+def _handle_task_stopped(event, *, name_prefix, environment, aws_region, webhook_url, sender):
     detail = event["detail"]
 
     # Only alert for service tasks, not standalone tasks.
@@ -143,7 +143,7 @@ def _handle_task_stopped(event, *, app_name, environment, aws_region, webhook_ur
     ]
 
     _send_slack(webhook_url, {
-        "username": f"{app_name}-{environment}-ecs-tasks-alert",
+        "username": f"{name_prefix}-ecs-tasks-alert",
         "icon_emoji": ":rotating_light:",
         "attachments": [
             {
@@ -160,8 +160,7 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
     if sender is None:
         sender = urllib.request.urlopen
 
-    app_name = os.environ["APP_NAME"]
-    environment = os.environ["ENVIRONMENT"]
+    name_prefix = os.environ["NAME_PREFIX"]
     aws_region = os.environ["AWS_REGION"]
     webhook_url = os.environ["SLACK_WEBHOOK_URL"]
 
@@ -174,7 +173,7 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
         _handle_service_impaired(
             event,
             ecs_client=ecs_client,
-            app_name=app_name,
+            name_prefix=name_prefix,
             environment=environment,
             aws_region=aws_region,
             webhook_url=webhook_url,
@@ -183,7 +182,7 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
     elif detail_type == "ECS Task State Change":
         _handle_task_stopped(
             event,
-            app_name=app_name,
+            name_prefix=name_prefix,
             environment=environment,
             aws_region=aws_region,
             webhook_url=webhook_url,
