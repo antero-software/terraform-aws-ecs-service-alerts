@@ -7,14 +7,15 @@ data "archive_file" "ecs_alert_lambda_zip" {
 resource "aws_lambda_function" "ecs_alert" {
   function_name    = "${var.app_name}-${var.environment}-ecs-alert"
   role             = aws_iam_role.ecs_alert_lambda_role.arn
-  handler          = "app.handler"
+  handler          = "app.main"
   runtime          = "python3.12"
   filename         = data.archive_file.ecs_alert_lambda_zip.output_path
   source_code_hash = data.archive_file.ecs_alert_lambda_zip.output_base64sha256
 
   environment {
     variables = {
-      ACCOUNT_NAME      = var.account_name
+      APP_NAME          = var.app_name
+      ENVIRONMENT       = var.environment
       AWS_REGION        = var.aws_region
       SLACK_WEBHOOK_URL = var.slack_webhook_url
     }
@@ -63,7 +64,12 @@ resource "aws_iam_role_policy" "ecs_alert_lambda_policy" {
           "logs:PutLogEvents"
         ]
         Resource = "arn:aws:logs:*:*:*"
-      }
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:DescribeServices"]
+        Resource = "*"
+      },
     ]
   })
 }
@@ -81,16 +87,44 @@ resource "aws_cloudwatch_event_rule" "ecs_task_start_impaired" {
   })
 }
 
-resource "aws_cloudwatch_event_target" "ecs_alert" {
+resource "aws_cloudwatch_event_rule" "ecs_task_crashed" {
+  name        = "${var.app_name}-${var.environment}-ecs-task-crashed"
+  description = "Trigger lambda when an ECS task stops with a non-zero exit code"
+
+  event_pattern = jsonencode({
+    source      = ["aws.ecs"]
+    detail-type = ["ECS Task State Change"]
+    detail = {
+      lastStatus = ["STOPPED"]
+      stopCode   = ["EssentialContainerExited"]
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "ecs_alert_impaired" {
   rule      = aws_cloudwatch_event_rule.ecs_task_start_impaired.name
   target_id = "SendToECSAlertLambda"
   arn       = aws_lambda_function.ecs_alert.arn
 }
 
-resource "aws_lambda_permission" "allow_cloudwatch" {
-  statement_id  = "AllowExecutionFromCloudWatch"
+resource "aws_cloudwatch_event_target" "ecs_alert_crashed" {
+  rule      = aws_cloudwatch_event_rule.ecs_task_crashed.name
+  target_id = "SendToECSAlertLambdaCrash"
+  arn       = aws_lambda_function.ecs_alert.arn
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch_impaired" {
+  statement_id  = "AllowExecutionFromCloudWatchImpaired"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.ecs_alert.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.ecs_task_start_impaired.arn
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch_crashed" {
+  statement_id  = "AllowExecutionFromCloudWatchCrashed"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.ecs_alert.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.ecs_task_crashed.arn
 }

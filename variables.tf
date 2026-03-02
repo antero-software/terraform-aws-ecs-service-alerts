@@ -11,11 +11,7 @@ variable "environment" {
 variable "aws_region" {
   type        = string
   description = "AWS region"
-}
-
-variable "account_name" {
-  type        = string
-  description = "Name of the AWS account to display in Slack alerts"
+  default     = "ap-southeast-2"
 }
 
 variable "slack_webhook_url" {
