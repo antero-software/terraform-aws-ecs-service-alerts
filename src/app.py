@@ -79,7 +79,7 @@ def _handle_service_impaired(event, *, ecs_client, app_name, environment, aws_re
             })
 
         _send_slack(webhook_url, {
-            "username": f"{app_name}-{environment}-ecs-tasks-alert",
+            "username": f"{app_name}-ecs-tasks-alert",
             "icon_emoji": ":rotating_light:",
             "attachments": [
                 {
@@ -143,7 +143,7 @@ def _handle_task_stopped(event, *, app_name, environment, aws_region, webhook_ur
     ]
 
     _send_slack(webhook_url, {
-        "username": f"{app_name}-{environment}-ecs-tasks-alert",
+        "username": f"{app_name}-ecs-tasks-alert",
         "icon_emoji": ":rotating_light:",
         "attachments": [
             {
@@ -161,7 +161,6 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
         sender = urllib.request.urlopen
 
     app_name = os.environ["APP_NAME"]
-    environment = os.environ["ENVIRONMENT"]
     aws_region = os.environ["AWS_REGION"]
     webhook_url = os.environ["SLACK_WEBHOOK_URL"]
 
