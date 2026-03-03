@@ -61,15 +61,18 @@ ECS events
 ## Usage
 
 ```hcl
-module "ecs_service_alerts" {
+module "ecs_alerts" {
   source = "git::https://github.com/your-org/terraform-aws-ecs-service-alerts.git"
 
-  name_prefix       = "myapp"
-  slack_webhook_url = var.slack_webhook_url
+  name_prefix             = "myapp"
+  slack_webhook_url_prod  = var.slack_webhook_url_prod
+  slack_webhook_url_lower = var.slack_webhook_url_lower
 }
 ```
 
-> `slack_webhook_url` is marked sensitive — pass it via a secret store or `TF_VAR_slack_webhook_url`.
+> Alerts are routed automatically — clusters with `prod` in their name go to the prod channel, all others to the lower env channel.
+
+> Webhook URL'leri sensitive — secret store veya `TF_VAR_` ile geçirin.
 
 ## Requirements
 
@@ -82,9 +85,10 @@ module "ecs_service_alerts" {
 
 | Name                | Type     | Default            | Required | Description                              |
 |---------------------|----------|--------------------|----------|------------------------------------------|
-| `name_prefix`       | `string` | —                  | yes      | Prefix used for all resource names       |
-| `aws_region`        | `string` | `ap-southeast-2`   | no       | AWS region                               |
-| `slack_webhook_url` | `string` | —                  | yes      | Slack incoming webhook URL (sensitive)   |
+| `name_prefix`              | `string` | —                | yes      | Prefix used for all resource names                        |
+| `aws_region`               | `string` | `ap-southeast-2` | no       | AWS region                                                |
+| `slack_webhook_url_prod`   | `string` | —                | yes      | Slack webhook for prod alerts (clusters containing `prod`)|
+| `slack_webhook_url_lower`  | `string` | —                | yes      | Slack webhook for lower environment alerts (sensitive)    |
 
 ## Outputs
 
