@@ -91,7 +91,7 @@ def _handle_service_impaired(event, *, ecs_client, name_prefix, aws_region, webh
             "attachments": [
                 {
                     "color": "danger",
-                    "pretext": ":warning: *Service Start Impaired*",
+                    "pretext": ":cat_shake: *Service Start Impaired*",
                     "mrkdwn_in": ["pretext"],
                     "fields": fields,
                     "actions": [

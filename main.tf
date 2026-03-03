@@ -3,8 +3,8 @@ resource "aws_lambda_function" "ecs_alert" {
   role             = aws_iam_role.ecs_alert_lambda_role.arn
   handler          = "app.main"
   runtime          = "python3.12"
-  filename         = "${path.module}/ecs_alert_lambda.zip"
-  source_code_hash = filebase64sha256("${path.module}/ecs_alert_lambda.zip")
+  filename         = "${path.module}/src/ecs_alert_lambda.zip"
+  source_code_hash = filebase64sha256("${path.module}/src/ecs_alert_lambda.zip")
 
   environment {
     variables = {
