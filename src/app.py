@@ -25,6 +25,11 @@ def log_on_error(fn):
     return wrapper
 
 
+def _pick_webhook(cluster_name, *, webhook_prod, webhook_lower):
+    """Route to prod channel if cluster name contains 'prod', otherwise lower env."""
+    return webhook_prod if "prod" in cluster_name.lower() else webhook_lower
+
+
 def _send_slack(webhook_url, payload, sender):
     print("Sending message %s" % json.dumps(payload))
     req = urllib.request.Request(
@@ -38,7 +43,7 @@ def _send_slack(webhook_url, payload, sender):
         raise Exception(f"{err} - {err.read()}")
 
 
-def _handle_service_impaired(event, *, ecs_client, name_prefix, environment, aws_region, webhook_url, sender):
+def _handle_service_impaired(event, *, ecs_client, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
     # The 'resources' list will contain a list of ECS service ARNs, e.g.
     #
     #     arn:aws:ecs:eu-west-1:1234567890:service/pipeline/image_inferrer
@@ -47,6 +52,8 @@ def _handle_service_impaired(event, *, ecs_client, name_prefix, environment, aws
     # 'image_inferrer'.
     for r in event["resources"]:
         _, cluster_name, service_name = r.split("/")
+
+        webhook_url = _pick_webhook(cluster_name, webhook_prod=webhook_prod, webhook_lower=webhook_lower)
 
         # Fetch the last 5 service events to surface the failure reason.
         recent_events = []
@@ -91,7 +98,7 @@ def _handle_service_impaired(event, *, ecs_client, name_prefix, environment, aws
         }, sender)
 
 
-def _handle_task_stopped(event, *, name_prefix, environment, aws_region, webhook_url, sender):
+def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
     detail = event["detail"]
 
     # Only alert for service tasks, not standalone tasks.
@@ -101,6 +108,8 @@ def _handle_task_stopped(event, *, name_prefix, environment, aws_region, webhook
     service_name = group.split(":", 1)[1]
 
     cluster_name = detail["clusterArn"].split("/")[-1]
+
+    webhook_url = _pick_webhook(cluster_name, webhook_prod=webhook_prod, webhook_lower=webhook_lower)
 
     # Skip graceful shutdowns — only alert when at least one container
     # exited with a non-zero exit code.
@@ -162,7 +171,8 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
 
     name_prefix = os.environ["NAME_PREFIX"]
     aws_region = os.environ["AWS_REGION"]
-    webhook_url = os.environ["SLACK_WEBHOOK_URL"]
+    webhook_prod = os.environ["SLACK_WEBHOOK_URL_PROD"]
+    webhook_lower = os.environ["SLACK_WEBHOOK_URL_LOWER"]
 
     sess = boto3.Session()
     ecs_client = sess.client("ecs", region_name=aws_region)
@@ -174,18 +184,18 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
             event,
             ecs_client=ecs_client,
             name_prefix=name_prefix,
-            environment=environment,
             aws_region=aws_region,
-            webhook_url=webhook_url,
+            webhook_prod=webhook_prod,
+            webhook_lower=webhook_lower,
             sender=sender,
         )
     elif detail_type == "ECS Task State Change":
         _handle_task_stopped(
             event,
             name_prefix=name_prefix,
-            environment=environment,
             aws_region=aws_region,
-            webhook_url=webhook_url,
+            webhook_prod=webhook_prod,
+            webhook_lower=webhook_lower,
             sender=sender,
         )
     else:
