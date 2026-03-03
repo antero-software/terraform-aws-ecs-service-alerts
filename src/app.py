@@ -68,15 +68,15 @@ def _handle_service_impaired(event, *, ecs_client, name_prefix, aws_region, webh
         except Exception as e:
             print(f"Failed to fetch ECS service events: {e}", file=sys.stderr)
 
+        console_url = (
+            f"https://{aws_region}.console.aws.amazon.com/ecs/v2/clusters/"
+            f"{cluster_name}/services/{service_name}/deployments?region={aws_region}"
+        )
+
         fields = [
-            {
-                "value": (
-                    f"{service_name} is unable to consistently start tasks successfully. "
-                    f"<https://{aws_region}.console.aws.amazon.com/ecs/v2/clusters/"
-                    f"{cluster_name}/services/{service_name}/deployments?region={aws_region}"
-                    f"|View in console>"
-                )
-            }
+            {"title": "ECS Cluster", "value": cluster_name, "short": True},
+            {"title": "ECS Service", "value": service_name, "short": True},
+            {"title": "Details", "value": f"{service_name} is unable to consistently start tasks successfully.", "short": False},
         ]
 
         if recent_events:
@@ -91,8 +91,12 @@ def _handle_service_impaired(event, *, ecs_client, name_prefix, aws_region, webh
             "attachments": [
                 {
                     "color": "danger",
-                    "title": f"{cluster_name} / {service_name}",
+                    "pretext": ":warning: *Service Start Impaired*",
+                    "mrkdwn_in": ["pretext"],
                     "fields": fields,
+                    "actions": [
+                        {"type": "button", "text": "View in Console :arrow_upper_right:", "url": console_url},
+                    ],
                 }
             ],
         }, sender)
@@ -133,23 +137,10 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
                 line += f" — {reason}"
             container_lines.append(line)
 
-    fields = [
-        {
-            "value": (
-                f"<https://{aws_region}.console.aws.amazon.com/ecs/v2/clusters/"
-                f"{cluster_name}/services/{service_name}/deployments?region={aws_region}"
-                f"|View in console>"
-            )
-        },
-        {
-            "title": "Stopped Reason",
-            "value": detail.get("stoppedReason", "Unknown"),
-        },
-        {
-            "title": "Crashed Containers",
-            "value": "\n".join(container_lines),
-        },
-    ]
+    console_url = (
+        f"https://{aws_region}.console.aws.amazon.com/ecs/v2/clusters/"
+        f"{cluster_name}/services/{service_name}/deployments?region={aws_region}"
+    )
 
     _send_slack(webhook_url, {
         "username": f"{name_prefix}-ecs-tasks-alert",
@@ -157,8 +148,17 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
         "attachments": [
             {
                 "color": "danger",
-                "title": f"{cluster_name} / {service_name} — task crashed",
-                "fields": fields,
+                "pretext": ":alert: *Task Crashed*",
+                "mrkdwn_in": ["pretext"],
+                "fields": [
+                    {"title": "ECS Cluster", "value": cluster_name, "short": True},
+                    {"title": "ECS Service", "value": service_name, "short": True},
+                    {"title": "Stopped Reason", "value": detail.get("stoppedReason", "Unknown"), "short": False},
+                    {"title": "Crashed Containers", "value": "\n".join(container_lines), "short": False},
+                ],
+                "actions": [
+                    {"type": "button", "text": "View in Console :arrow_upper_right:", "url": console_url},
+                ],
             }
         ],
     }, sender)
