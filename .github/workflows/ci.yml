@@ -21,13 +21,14 @@ jobs:
       - name: Terraform fmt
         run: terraform fmt -check -recursive
 
+      - name: Build Lambda ZIP
+        run: zip -q -X -j ecs_alert_lambda.zip src/app.py
+
       - name: Terraform init (module)
         run: terraform init -backend=false
-        working-directory: .
 
       - name: Terraform validate
         run: terraform validate
-        working-directory: .
 
   release:
     needs: terraform-checks
@@ -38,6 +39,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Build Lambda ZIP
+        run: zip -q -X -j ecs_alert_lambda.zip src/app.py
+
+      - name: Commit updated ZIP
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ecs_alert_lambda.zip
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: rebuild lambda zip [skip ci]"
+            git push
+          fi
 
       - name: Compute next tag (Conventional Commits)
         id: tag

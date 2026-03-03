@@ -1,16 +1,10 @@
-data "archive_file" "ecs_alert_lambda_zip" {
-  type        = "zip"
-  source_dir  = "${path.module}/src"
-  output_path = "${path.module}/ecs_alert_lambda.zip"
-}
-
 resource "aws_lambda_function" "ecs_alert" {
   function_name    = "${var.name_prefix}-ecs-alert"
   role             = aws_iam_role.ecs_alert_lambda_role.arn
   handler          = "app.main"
   runtime          = "python3.12"
-  filename         = data.archive_file.ecs_alert_lambda_zip.output_path
-  source_code_hash = data.archive_file.ecs_alert_lambda_zip.output_base64sha256
+  filename         = "${path.module}/ecs_alert_lambda.zip"
+  source_code_hash = filebase64sha256("${path.module}/ecs_alert_lambda.zip")
 
   environment {
     variables = {
