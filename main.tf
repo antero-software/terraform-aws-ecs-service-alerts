@@ -9,7 +9,6 @@ resource "aws_lambda_function" "ecs_alert" {
   environment {
     variables = {
       NAME_PREFIX             = var.name_prefix
-      AWS_REGION              = var.aws_region
       SLACK_WEBHOOK_URL_PROD  = var.slack_webhook_url_prod
       SLACK_WEBHOOK_URL_LOWER = var.slack_webhook_url_lower
     }
