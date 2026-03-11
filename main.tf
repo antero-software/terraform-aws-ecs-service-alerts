@@ -89,7 +89,7 @@ resource "aws_cloudwatch_event_rule" "ecs_task_crashed" {
     detail-type = ["ECS Task State Change"]
     detail = {
       lastStatus = ["STOPPED"]
-      stopCode   = ["EssentialContainerExited"]
+      stopCode   = ["EssentialContainerExited", "ServiceSchedulerInitiated"]
     }
   })
 }
