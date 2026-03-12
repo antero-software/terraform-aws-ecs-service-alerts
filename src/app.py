@@ -169,6 +169,50 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
         f"{cluster_name}/services/{service_name}/deployments?region={aws_region}"
     )
 
+    if stop_code == "SpotInterruptionTermination":
+        _send_slack(webhook_url, {
+            "username": f"{name_prefix}-ecs-tasks-alert",
+            "icon_emoji": ":rotating_light:",
+            "attachments": [
+                {
+                    "color": "warning",
+                    "pretext": ":warning: *Spot Instance Interrupted*",
+                    "mrkdwn_in": ["pretext"],
+                    "fields": [
+                        {"title": "ECS Cluster", "value": cluster_name, "short": True},
+                        {"title": "ECS Service", "value": service_name, "short": True},
+                        {"title": "Reason", "value": detail.get("stoppedReason", "AWS reclaimed the spot instance"), "short": False},
+                    ],
+                    "actions": [
+                        {"type": "button", "text": "View in Console :arrow_upper_right:", "url": console_url},
+                    ],
+                }
+            ],
+        }, sender)
+        return
+
+    if stop_code == "UserInitiated":
+        _send_slack(webhook_url, {
+            "username": f"{name_prefix}-ecs-tasks-alert",
+            "icon_emoji": ":rotating_light:",
+            "attachments": [
+                {
+                    "color": "warning",
+                    "pretext": ":warning: *Task Stopped Manually*",
+                    "mrkdwn_in": ["pretext"],
+                    "fields": [
+                        {"title": "ECS Cluster", "value": cluster_name, "short": True},
+                        {"title": "ECS Service", "value": service_name, "short": True},
+                        {"title": "Reason", "value": detail.get("stoppedReason", "Unknown"), "short": False},
+                    ],
+                    "actions": [
+                        {"type": "button", "text": "View in Console :arrow_upper_right:", "url": console_url},
+                    ],
+                }
+            ],
+        }, sender)
+        return
+
     if stop_code == "TaskFailedToStart":
         # Task never started — image pull failure, resource allocation failure, etc.
         # Containers won't have exit codes; the reason lives in stoppedReason.
