@@ -75,7 +75,7 @@ resource "aws_cloudwatch_event_rule" "ecs_task_start_impaired" {
     source      = ["aws.ecs"]
     detail-type = ["ECS Service Action"]
     detail = {
-      eventName = ["SERVICE_TASK_START_IMPAIRED"]
+      eventName = ["SERVICE_TASK_START_IMPAIRED", "SERVICE_DEPLOYMENT_FAILED"]
     }
   })
 }
@@ -89,7 +89,7 @@ resource "aws_cloudwatch_event_rule" "ecs_task_crashed" {
     detail-type = ["ECS Task State Change"]
     detail = {
       lastStatus = ["STOPPED"]
-      stopCode   = ["EssentialContainerExited"]
+      stopCode   = ["EssentialContainerExited", "ServiceSchedulerInitiated", "TaskFailedToStart", "SpotInterruptionTermination", "UserInitiated"]
     }
   })
 }
