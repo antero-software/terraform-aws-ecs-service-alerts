@@ -248,6 +248,12 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
         return
 
     # EssentialContainerExited / ServiceSchedulerInitiated:
+    # Skip intentional stops — draining instances and scaling/deployment activity
+    # are expected and should not page.
+    stopped_reason = detail.get("stoppedReason", "")
+    if "DRAINING" in stopped_reason or "Scaling activity initiated by" in stopped_reason:
+        return
+
     # Skip graceful shutdowns — only alert when at least one container
     # exited with a non-zero exit code.
     crashed = [
