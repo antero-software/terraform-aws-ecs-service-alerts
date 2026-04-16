@@ -251,14 +251,17 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
     # Skip intentional stops — draining instances and scaling/deployment activity
     # are expected and should not page.
     stopped_reason = detail.get("stoppedReason", "")
-    if "DRAINING" in stopped_reason or "Scaling activity initiated by" in stopped_reason:
+    if "DRAINING" in stopped_reason or "Scaling activity initiated by" in stopped_reason or "Availability-zone rebalancing" in stopped_reason:
         return
 
-    # Skip graceful shutdowns — only alert when at least one container
-    # exited with a non-zero exit code.
+    # Skip graceful shutdowns — only alert when at least one container exited
+    # with a non-zero, non-graceful exit code.
+    # 0   = clean exit
+    # 143 = SIGTERM (graceful shutdown initiated by ECS/AWS)
+    _GRACEFUL_EXIT_CODES = {0, 143}
     crashed = [
         c for c in detail.get("containers", [])
-        if c.get("exitCode") is not None and c.get("exitCode") != 0
+        if c.get("exitCode") is not None and c.get("exitCode") not in _GRACEFUL_EXIT_CODES
     ]
     if not crashed:
         return
