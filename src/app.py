@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import urllib.request
+from datetime import datetime, timezone
 from urllib.error import HTTPError
 from typing import Any, Callable, Optional
 
@@ -28,6 +29,41 @@ def log_on_error(fn):
 def _pick_webhook(cluster_name, *, webhook_prod, webhook_lower):
     """Route to prod channel if cluster name contains 'prod', otherwise lower env."""
     return webhook_prod if "prod" in cluster_name.lower() else webhook_lower
+
+
+def _in_maintenance_window(*, _now=None):
+    """Check if current UTC time falls within the configured maintenance window.
+
+    Returns True if alerts should be suppressed, False otherwise.
+    Supports overnight windows (e.g. start=23:00, end=01:00).
+    The _now parameter is for testing only.
+    """
+    if os.environ.get("MAINTENANCE_WINDOW_ENABLED", "false").lower() != "true":
+        return False
+
+    now = _now or datetime.now(timezone.utc)
+    start_str = os.environ.get("MAINTENANCE_WINDOW_START", "01:00")
+    end_str = os.environ.get("MAINTENANCE_WINDOW_END", "05:00")
+
+    start_h, start_m = map(int, start_str.split(":"))
+    end_h, end_m = map(int, end_str.split(":"))
+
+    current_minutes = now.hour * 60 + now.minute
+    start_minutes = start_h * 60 + start_m
+    end_minutes = end_h * 60 + end_m
+
+    if start_minutes <= end_minutes:
+        # Same-day window: e.g. 01:00 – 05:00
+        return start_minutes <= current_minutes < end_minutes
+    else:
+        # Overnight window: e.g. 23:00 – 01:00
+        return current_minutes >= start_minutes or current_minutes < end_minutes
+
+
+def _log_maintenance_suppressed(event_type, event):
+    """Log a suppressed event during a maintenance window for audit."""
+    print(f"[MAINTENANCE WINDOW] {event_type} alert suppressed. "
+          f"event={json.dumps(event, default=str)}")
 
 
 def _send_slack(webhook_url, payload, sender):
@@ -59,6 +95,11 @@ def _fetch_recent_events(ecs_client, cluster_name, service_name):
 
 
 def _handle_service_impaired(event, *, ecs_client, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
+    # Deployment-related — suppress during maintenance window.
+    if _in_maintenance_window():
+        _log_maintenance_suppressed("SERVICE_TASK_START_IMPAIRED", event)
+        return
+
     # The 'resources' list will contain a list of ECS service ARNs, e.g.
     #
     #     arn:aws:ecs:eu-west-1:1234567890:service/pipeline/image_inferrer
@@ -107,6 +148,11 @@ def _handle_service_impaired(event, *, ecs_client, name_prefix, aws_region, webh
 
 
 def _handle_deployment_failed(event, *, ecs_client, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
+    # Deployment-related — suppress during maintenance window.
+    if _in_maintenance_window():
+        _log_maintenance_suppressed("SERVICE_DEPLOYMENT_FAILED", event)
+        return
+
     # Same ARN structure as service action events:
     #   arn:aws:ecs:region:account:service/cluster/service
     for r in event["resources"]:
@@ -192,6 +238,11 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
         return
 
     if stop_code == "UserInitiated":
+        # Manual stop — likely part of maintenance, suppress during window.
+        if _in_maintenance_window():
+            _log_maintenance_suppressed("UserInitiated", event)
+            return
+
         _send_slack(webhook_url, {
             "username": f"{name_prefix}-ecs-tasks-alert",
             "icon_emoji": ":rotating_light:",
@@ -215,6 +266,11 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
 
     if stop_code == "TaskFailedToStart":
         # Task never started — image pull failure, resource allocation failure, etc.
+        # Deployment-related — suppress during maintenance window.
+        if _in_maintenance_window():
+            _log_maintenance_suppressed("TaskFailedToStart", event)
+            return
+
         # Containers won't have exit codes; the reason lives in stoppedReason.
         stopped_reason = detail.get("stoppedReason", "Unknown")
         container_lines = [

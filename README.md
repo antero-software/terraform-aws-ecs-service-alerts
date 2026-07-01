@@ -67,6 +67,11 @@ module "ecs_alerts" {
   name_prefix             = "myapp"
   slack_webhook_url_prod  = var.slack_webhook_url_prod
   slack_webhook_url_lower = var.slack_webhook_url_lower
+
+  # Optional: suppress alerts during a nightly maintenance window (UTC)
+  maintenance_window_enabled = true
+  maintenance_window_start   = "01:00"
+  maintenance_window_end     = "05:00"
 }
 ```
 
@@ -81,6 +86,28 @@ module "ecs_alerts" {
 | terraform | >= 1.3    |
 | aws       | >= 5.0    |
 
+## Maintenance Window
+
+You can define a recurring UTC time window during which **deployment-related** Slack alerts are suppressed. This is useful for planned maintenance (e.g. automated deployments, AMI rotations) that would otherwise trigger a flood of false-positive alerts.
+
+**Runtime crash alerts (OOM kills, non-zero exit codes) and Spot interruptions are never suppressed** — these indicate real issues even during maintenance.
+
+- **Disabled by default** — set `maintenance_window_enabled = true` to activate.
+- **Events are still logged** — the Lambda still executes and writes to CloudWatch Logs with a `[MAINTENANCE WINDOW]` prefix, preserving the audit trail.
+- **Overnight windows supported** — e.g. `start = "23:00"`, `end = "01:00"` works correctly across midnight.
+- **All times are UTC** to avoid daylight saving time edge cases.
+
+### What gets suppressed during the window
+
+| Alert Type | Suppressed | Reason |
+|---|---|---|
+| Service Start Impaired | ✅ Yes | Expected during rolling updates |
+| Deployment Failed | ✅ Yes | Deployment lifecycle noise |
+| Task Failed to Start | ✅ Yes | Image pull / resource allocation during update |
+| Task Stopped Manually | ✅ Yes | Likely part of maintenance |
+| **Task Crashed (OOM, non-zero exit)** | ❌ **No** | Real runtime issue |
+| **Spot Interruption** | ❌ **No** | AWS-initiated, unrelated to maintenance |
+
 ## Inputs
 
 | Name                | Type     | Default            | Required | Description                              |
@@ -89,6 +116,9 @@ module "ecs_alerts" {
 | `aws_region`               | `string` | `ap-southeast-2` | no       | AWS region                                                |
 | `slack_webhook_url_prod`   | `string` | —                | yes      | Slack webhook for prod alerts (clusters containing `prod`)|
 | `slack_webhook_url_lower`  | `string` | —                | yes      | Slack webhook for lower environment alerts (sensitive)    |
+| `maintenance_window_enabled` | `bool` | `false`          | no       | Enable maintenance window alert suppression               |
+| `maintenance_window_start`   | `string` | `01:00`        | no       | Start time in HH:MM (UTC)                                 |
+| `maintenance_window_end`     | `string` | `05:00`        | no       | End time in HH:MM (UTC). Overnight windows supported      |
 
 ## Outputs
 
