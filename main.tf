@@ -8,9 +8,12 @@ resource "aws_lambda_function" "ecs_alert" {
 
   environment {
     variables = {
-      NAME_PREFIX             = var.name_prefix
-      SLACK_WEBHOOK_URL_PROD  = var.slack_webhook_url_prod
-      SLACK_WEBHOOK_URL_LOWER = var.slack_webhook_url_lower
+      NAME_PREFIX                = var.name_prefix
+      SLACK_WEBHOOK_URL_PROD     = var.slack_webhook_url_prod
+      SLACK_WEBHOOK_URL_LOWER    = var.slack_webhook_url_lower
+      MAINTENANCE_WINDOW_ENABLED = tostring(var.maintenance_window_enabled)
+      MAINTENANCE_WINDOW_START   = var.maintenance_window_start
+      MAINTENANCE_WINDOW_END     = var.maintenance_window_end
     }
   }
 
