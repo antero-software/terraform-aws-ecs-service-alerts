@@ -21,30 +21,14 @@ variable "slack_webhook_url_lower" {
   sensitive   = true
 }
 
-variable "maintenance_window_enabled" {
-  type        = bool
-  description = "Enable a recurring maintenance window during which alerts are suppressed (events are still logged to CloudWatch)"
-  default     = false
+variable "maintenance_marker_parameter_name" {
+  type        = string
+  description = "Name of an SSM Parameter Store parameter that, when set to a truthy value (true/1/active/on/yes), suppresses alerts. Useful for ad hoc maintenance."
+  default     = ""
 }
 
-variable "maintenance_window_start" {
-  type        = string
-  description = "Start time of the maintenance window in HH:MM format (UTC). Example: '01:00'"
-  default     = "01:00"
-
-  validation {
-    condition     = can(regex("^([01]\\d|2[0-3]):[0-5]\\d$", var.maintenance_window_start))
-    error_message = "maintenance_window_start must be in HH:MM format (24-hour UTC), e.g. '02:00'."
-  }
-}
-
-variable "maintenance_window_end" {
-  type        = string
-  description = "End time of the maintenance window in HH:MM format (UTC). Supports overnight windows (e.g. start=23:00, end=01:00)"
-  default     = "05:00"
-
-  validation {
-    condition     = can(regex("^([01]\\d|2[0-3]):[0-5]\\d$", var.maintenance_window_end))
-    error_message = "maintenance_window_end must be in HH:MM format (24-hour UTC), e.g. '04:00'."
-  }
+variable "patch_maintenance_window_ids" {
+  type        = map(string)
+  description = "Map of exact ECS cluster name to SSM Maintenance Window ID, e.g. from the terraform-aws-ssm-patch-manager module's maintenance_window_id output. Alerts for a cluster are suppressed while its mapped window has an execution in progress, reflecting real patch/reboot activity instead of a fixed clock schedule. Useful when one Lambda covers clusters from more than one environment/patch window."
+  default     = {}
 }

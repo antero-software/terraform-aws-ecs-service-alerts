@@ -68,10 +68,17 @@ module "ecs_alerts" {
   slack_webhook_url_prod  = var.slack_webhook_url_prod
   slack_webhook_url_lower = var.slack_webhook_url_lower
 
-  # Optional: suppress alerts during a nightly maintenance window (UTC)
-  maintenance_window_enabled = true
-  maintenance_window_start   = "01:00"
-  maintenance_window_end     = "05:00"
+  # Optional: suppress alerts while the SSM patch manager's window is actively
+  # patching/rebooting instances, instead of guessing a fixed clock range.
+  # Keyed by exact ECS cluster name — one Lambda can cover clusters from
+  # more than one environment/patch window this way.
+  patch_maintenance_window_ids = {
+    "myapp-cluster-uat" = module.patch_manager_uat.maintenance_window_id
+    "myapp-cluster"     = module.patch_manager_prod.maintenance_window_id
+  }
+
+  # Optional: suppress alerts for ad hoc maintenance via an SSM parameter
+  maintenance_marker_parameter_name = "/myapp/maintenance-marker"
 }
 ```
 
@@ -88,16 +95,16 @@ module "ecs_alerts" {
 
 ## Maintenance Window
 
-You can define a recurring UTC time window during which **deployment-related** Slack alerts are suppressed. This is useful for planned maintenance (e.g. automated deployments, AMI rotations) that would otherwise trigger a flood of false-positive alerts.
+Slack alerts can be suppressed while maintenance is happening. Two independent signals feed into the same suppression check — either one being active is enough to suppress:
 
-**Runtime crash alerts (OOM kills, non-zero exit codes) and Spot interruptions are never suppressed** — these indicate real issues even during maintenance.
+1. **Patch manager window** — `patch_maintenance_window_ids` maps an exact ECS cluster name to the ID of an SSM Maintenance Window, e.g. the `maintenance_window_id` output of [`terraform-aws-ssm-patch-manager`](https://github.com/antero-software/terraform-aws-ssm-patch-manager). For the cluster an alert is about, the Lambda looks up its mapped window and checks whether it currently has an execution `IN_PROGRESS`, so suppression tracks real patch/reboot activity instead of a guessed clock range — if a patch run finishes early or runs long, the suppression window follows it exactly. A map (rather than a single ID) lets one Lambda deployment correctly suppress alerts for clusters that belong to different environments/patch windows (e.g. a Lambda deployed once per AWS account, covering both a uat and a prod cluster with separate patch schedules). A cluster not present in the map is simply never suppressed by this signal.
+2. **Manual marker** — `maintenance_marker_parameter_name` set to an SSM Parameter Store parameter name. Set the parameter to a truthy value (`true`/`1`/`active`/`on`/`yes`) to suppress ad hoc, outside any schedule.
 
-- **Disabled by default** — set `maintenance_window_enabled = true` to activate.
+Both are optional and off by default.
+
 - **Events are still logged** — the Lambda still executes and writes to CloudWatch Logs with a `[MAINTENANCE WINDOW]` prefix, preserving the audit trail.
-- **Overnight windows supported** — e.g. `start = "23:00"`, `end = "01:00"` works correctly across midnight.
-- **All times are UTC** to avoid daylight saving time edge cases.
 
-### What gets suppressed during the window
+### What gets suppressed when a maintenance signal is active
 
 | Alert Type | Suppressed | Reason |
 |---|---|---|
@@ -105,7 +112,7 @@ You can define a recurring UTC time window during which **deployment-related** S
 | Deployment Failed | ✅ Yes | Deployment lifecycle noise |
 | Task Failed to Start | ✅ Yes | Image pull / resource allocation during update |
 | Task Stopped Manually | ✅ Yes | Likely part of maintenance |
-| **Task Crashed (OOM, non-zero exit)** | ❌ **No** | Real runtime issue |
+| Task Crashed (OOM, non-zero exit) | ✅ Yes | Patching-induced reboots can SIGKILL containers (exit 137); real if no maintenance signal is active |
 | **Spot Interruption** | ❌ **No** | AWS-initiated, unrelated to maintenance |
 
 ## Inputs
@@ -116,9 +123,8 @@ You can define a recurring UTC time window during which **deployment-related** S
 | `aws_region`               | `string` | `ap-southeast-2` | no       | AWS region                                                |
 | `slack_webhook_url_prod`   | `string` | —                | yes      | Slack webhook for prod alerts (clusters containing `prod`)|
 | `slack_webhook_url_lower`  | `string` | —                | yes      | Slack webhook for lower environment alerts (sensitive)    |
-| `maintenance_window_enabled` | `bool` | `false`          | no       | Enable maintenance window alert suppression               |
-| `maintenance_window_start`   | `string` | `01:00`        | no       | Start time in HH:MM (UTC)                                 |
-| `maintenance_window_end`     | `string` | `05:00`        | no       | End time in HH:MM (UTC). Overnight windows supported      |
+| `patch_maintenance_window_ids` | `map(string)` | `{}`      | no       | Exact ECS cluster name -> SSM Maintenance Window ID; suppresses alerts for that cluster while its window has an execution in progress (e.g. from `terraform-aws-ssm-patch-manager`) |
+| `maintenance_marker_parameter_name` | `string` | `""`   | no       | SSM Parameter Store parameter name for manual ad hoc suppression |
 
 ## Outputs
 

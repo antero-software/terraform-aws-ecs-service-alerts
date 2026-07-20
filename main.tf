@@ -8,12 +8,11 @@ resource "aws_lambda_function" "ecs_alert" {
 
   environment {
     variables = {
-      NAME_PREFIX                = var.name_prefix
-      SLACK_WEBHOOK_URL_PROD     = var.slack_webhook_url_prod
-      SLACK_WEBHOOK_URL_LOWER    = var.slack_webhook_url_lower
-      MAINTENANCE_WINDOW_ENABLED = tostring(var.maintenance_window_enabled)
-      MAINTENANCE_WINDOW_START   = var.maintenance_window_start
-      MAINTENANCE_WINDOW_END     = var.maintenance_window_end
+      NAME_PREFIX                       = var.name_prefix
+      SLACK_WEBHOOK_URL_PROD            = var.slack_webhook_url_prod
+      SLACK_WEBHOOK_URL_LOWER           = var.slack_webhook_url_lower
+      MAINTENANCE_MARKER_PARAMETER_NAME = var.maintenance_marker_parameter_name
+      PATCH_MAINTENANCE_WINDOW_IDS      = jsonencode(var.patch_maintenance_window_ids)
     }
   }
 
@@ -65,6 +64,16 @@ resource "aws_iam_role_policy" "ecs_alert_lambda_policy" {
         Effect   = "Allow"
         Action   = ["ecs:DescribeServices"]
         Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = "arn:aws:ssm:${var.aws_region}:*:parameter/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:DescribeMaintenanceWindowExecutions"]
+        Resource = "arn:aws:ssm:${var.aws_region}:*:maintenancewindow/*"
       },
     ]
   })
