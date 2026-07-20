@@ -3,7 +3,6 @@ import json
 import os
 import sys
 import urllib.request
-from datetime import datetime, timezone
 from urllib.error import HTTPError
 from typing import Any, Callable, Optional
 
@@ -31,39 +30,56 @@ def _pick_webhook(cluster_name, *, webhook_prod, webhook_lower):
     return webhook_prod if "prod" in cluster_name.lower() else webhook_lower
 
 
-def _in_maintenance_window(*, _now=None):
-    """Check if current UTC time falls within the configured maintenance window.
-
-    Returns True if alerts should be suppressed, False otherwise.
-    Supports overnight windows (e.g. start=23:00, end=01:00).
-    The _now parameter is for testing only.
-    """
-    if os.environ.get("MAINTENANCE_WINDOW_ENABLED", "false").lower() != "true":
-        return False
-
-    now = _now or datetime.now(timezone.utc)
-    start_str = os.environ.get("MAINTENANCE_WINDOW_START", "01:00")
-    end_str = os.environ.get("MAINTENANCE_WINDOW_END", "05:00")
-
-    start_h, start_m = map(int, start_str.split(":"))
-    end_h, end_m = map(int, end_str.split(":"))
-
-    current_minutes = now.hour * 60 + now.minute
-    start_minutes = start_h * 60 + start_m
-    end_minutes = end_h * 60 + end_m
-
-    if start_minutes <= end_minutes:
-        # Same-day window: e.g. 01:00 – 05:00
-        return start_minutes <= current_minutes < end_minutes
-    else:
-        # Overnight window: e.g. 23:00 – 01:00
-        return current_minutes >= start_minutes or current_minutes < end_minutes
-
-
 def _log_maintenance_suppressed(event_type, event):
     """Log a suppressed event during a maintenance window for audit."""
     print(f"[MAINTENANCE WINDOW] {event_type} alert suppressed. "
           f"event={json.dumps(event, default=str)}")
+
+
+def _maintenance_marker_active(ssm_client, marker_parameter_name):
+    if not marker_parameter_name:
+        return False
+
+    try:
+        response = ssm_client.get_parameter(Name=marker_parameter_name)
+        value = response["Parameter"]["Value"].strip().lower()
+        return value in {"true", "1", "active", "on", "yes"}
+    except Exception as exc:
+        print(f"Failed to read maintenance marker {marker_parameter_name!r}: {exc}", file=sys.stderr)
+        return False
+
+
+def _patch_window_active(ssm_client, window_id):
+    """Check whether the given SSM Maintenance Window (e.g. the patch manager's
+    weekly window) currently has an execution in progress.
+
+    This reflects real patching/reboot activity rather than a fixed clock
+    schedule, so alerts are suppressed exactly while patching is actually
+    running instead of an approximate manually-configured time range.
+    """
+    if not window_id:
+        return False
+
+    try:
+        response = ssm_client.describe_maintenance_window_executions(
+            WindowId=window_id,
+            Filters=[{"Key": "Status", "Values": ["IN_PROGRESS"]}],
+            MaxResults=1,
+        )
+        return bool(response.get("WindowExecutions"))
+    except Exception as exc:
+        print(f"Failed to check patch maintenance window {window_id!r}: {exc}", file=sys.stderr)
+        return False
+
+
+def _maintenance_suppression_reason(event, *, ssm_client, marker_parameter_name, patch_window_id):
+    if _maintenance_marker_active(ssm_client, marker_parameter_name):
+        return "maintenance marker"
+
+    if _patch_window_active(ssm_client, patch_window_id):
+        return "patch manager window"
+
+    return None
 
 
 def _send_slack(webhook_url, payload, sender):
@@ -94,12 +110,7 @@ def _fetch_recent_events(ecs_client, cluster_name, service_name):
     return []
 
 
-def _handle_service_impaired(event, *, ecs_client, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
-    # Deployment-related — suppress during maintenance window.
-    if _in_maintenance_window():
-        _log_maintenance_suppressed("SERVICE_TASK_START_IMPAIRED", event)
-        return
-
+def _handle_service_impaired(event, *, ecs_client, ssm_client, maintenance_marker_parameter_name, patch_maintenance_window_id, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
     # The 'resources' list will contain a list of ECS service ARNs, e.g.
     #
     #     arn:aws:ecs:eu-west-1:1234567890:service/pipeline/image_inferrer
@@ -112,6 +123,16 @@ def _handle_service_impaired(event, *, ecs_client, name_prefix, aws_region, webh
         webhook_url = _pick_webhook(cluster_name, webhook_prod=webhook_prod, webhook_lower=webhook_lower)
 
         recent_events = _fetch_recent_events(ecs_client, cluster_name, service_name)
+
+        suppression_reason = _maintenance_suppression_reason(
+            event,
+            ssm_client=ssm_client,
+            marker_parameter_name=maintenance_marker_parameter_name,
+            patch_window_id=patch_maintenance_window_id,
+        )
+        if suppression_reason:
+            _log_maintenance_suppressed("SERVICE_TASK_START_IMPAIRED", event)
+            return
 
         console_url = (
             f"https://{aws_region}.console.aws.amazon.com/ecs/v2/clusters/"
@@ -147,12 +168,7 @@ def _handle_service_impaired(event, *, ecs_client, name_prefix, aws_region, webh
         }, sender)
 
 
-def _handle_deployment_failed(event, *, ecs_client, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
-    # Deployment-related — suppress during maintenance window.
-    if _in_maintenance_window():
-        _log_maintenance_suppressed("SERVICE_DEPLOYMENT_FAILED", event)
-        return
-
+def _handle_deployment_failed(event, *, ecs_client, ssm_client, maintenance_marker_parameter_name, patch_maintenance_window_id, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
     # Same ARN structure as service action events:
     #   arn:aws:ecs:region:account:service/cluster/service
     for r in event["resources"]:
@@ -162,6 +178,16 @@ def _handle_deployment_failed(event, *, ecs_client, name_prefix, aws_region, web
 
         # Fetch recent events to surface why the deployment failed.
         recent_events = _fetch_recent_events(ecs_client, cluster_name, service_name)
+
+        suppression_reason = _maintenance_suppression_reason(
+            event,
+            ssm_client=ssm_client,
+            marker_parameter_name=maintenance_marker_parameter_name,
+            patch_window_id=patch_maintenance_window_id,
+        )
+        if suppression_reason:
+            _log_maintenance_suppressed("SERVICE_DEPLOYMENT_FAILED", event)
+            return
 
         console_url = (
             f"https://{aws_region}.console.aws.amazon.com/ecs/v2/clusters/"
@@ -196,7 +222,7 @@ def _handle_deployment_failed(event, *, ecs_client, name_prefix, aws_region, web
         }, sender)
 
 
-def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
+def _handle_task_stopped(event, *, ssm_client, maintenance_marker_parameter_name, patch_maintenance_window_id, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
     detail = event["detail"]
 
     # Only alert for service tasks, not standalone tasks.
@@ -209,6 +235,13 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
     stop_code = detail.get("stopCode", "")
 
     webhook_url = _pick_webhook(cluster_name, webhook_prod=webhook_prod, webhook_lower=webhook_lower)
+
+    suppression_reason = _maintenance_suppression_reason(
+        event,
+        ssm_client=ssm_client,
+        marker_parameter_name=maintenance_marker_parameter_name,
+        patch_window_id=patch_maintenance_window_id,
+    )
 
     console_url = (
         f"https://{aws_region}.console.aws.amazon.com/ecs/v2/clusters/"
@@ -239,7 +272,7 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
 
     if stop_code == "UserInitiated":
         # Manual stop — likely part of maintenance, suppress during window.
-        if _in_maintenance_window():
+        if suppression_reason:
             _log_maintenance_suppressed("UserInitiated", event)
             return
 
@@ -267,7 +300,7 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
     if stop_code == "TaskFailedToStart":
         # Task never started — image pull failure, resource allocation failure, etc.
         # Deployment-related — suppress during maintenance window.
-        if _in_maintenance_window():
+        if suppression_reason:
             _log_maintenance_suppressed("TaskFailedToStart", event)
             return
 
@@ -322,6 +355,10 @@ def _handle_task_stopped(event, *, name_prefix, aws_region, webhook_prod, webhoo
     if not crashed:
         return
 
+    if suppression_reason:
+        _log_maintenance_suppressed("TaskCrashed", event)
+        return
+
     container_lines = []
     for c in crashed:
         name = c.get("name", "unknown")
@@ -366,9 +403,12 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
     aws_region = os.environ["AWS_REGION"]
     webhook_prod = os.environ["SLACK_WEBHOOK_URL_PROD"]
     webhook_lower = os.environ["SLACK_WEBHOOK_URL_LOWER"]
+    maintenance_marker_parameter_name = os.environ.get("MAINTENANCE_MARKER_PARAMETER_NAME", "")
+    patch_maintenance_window_id = os.environ.get("PATCH_MAINTENANCE_WINDOW_ID", "")
 
     sess = boto3.Session()
     ecs_client = sess.client("ecs", region_name=aws_region)
+    ssm_client = sess.client("ssm", region_name=aws_region)
 
     detail_type = event.get("detail-type")
     event_name = event.get("detail", {}).get("eventName")
@@ -378,6 +418,9 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
             _handle_deployment_failed(
                 event,
                 ecs_client=ecs_client,
+                ssm_client=ssm_client,
+                maintenance_marker_parameter_name=maintenance_marker_parameter_name,
+                patch_maintenance_window_id=patch_maintenance_window_id,
                 name_prefix=name_prefix,
                 aws_region=aws_region,
                 webhook_prod=webhook_prod,
@@ -388,6 +431,9 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
             _handle_service_impaired(
                 event,
                 ecs_client=ecs_client,
+                ssm_client=ssm_client,
+                maintenance_marker_parameter_name=maintenance_marker_parameter_name,
+                patch_maintenance_window_id=patch_maintenance_window_id,
                 name_prefix=name_prefix,
                 aws_region=aws_region,
                 webhook_prod=webhook_prod,
@@ -397,6 +443,9 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
     elif detail_type == "ECS Task State Change":
         _handle_task_stopped(
             event,
+            ssm_client=ssm_client,
+            maintenance_marker_parameter_name=maintenance_marker_parameter_name,
+            patch_maintenance_window_id=patch_maintenance_window_id,
             name_prefix=name_prefix,
             aws_region=aws_region,
             webhook_prod=webhook_prod,
