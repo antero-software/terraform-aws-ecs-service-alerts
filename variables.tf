@@ -27,8 +27,8 @@ variable "maintenance_marker_parameter_name" {
   default     = ""
 }
 
-variable "patch_maintenance_window_id" {
-  type        = string
-  description = "ID of an SSM Maintenance Window to treat as a live suppression signal, e.g. the maintenance_window_id output of the terraform-aws-ssm-patch-manager module. Alerts are suppressed while that window has an execution in progress, reflecting real patch/reboot activity instead of a fixed clock schedule."
-  default     = ""
+variable "patch_maintenance_window_ids" {
+  type        = map(string)
+  description = "Map of exact ECS cluster name to SSM Maintenance Window ID, e.g. from the terraform-aws-ssm-patch-manager module's maintenance_window_id output. Alerts for a cluster are suppressed while its mapped window has an execution in progress, reflecting real patch/reboot activity instead of a fixed clock schedule. Useful when one Lambda covers clusters from more than one environment/patch window."
+  default     = {}
 }

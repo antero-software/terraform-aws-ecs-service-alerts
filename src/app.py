@@ -72,10 +72,11 @@ def _patch_window_active(ssm_client, window_id):
         return False
 
 
-def _maintenance_suppression_reason(event, *, ssm_client, marker_parameter_name, patch_window_id):
+def _maintenance_suppression_reason(event, *, cluster_name, ssm_client, marker_parameter_name, patch_window_ids_by_cluster):
     if _maintenance_marker_active(ssm_client, marker_parameter_name):
         return "maintenance marker"
 
+    patch_window_id = patch_window_ids_by_cluster.get(cluster_name, "")
     if _patch_window_active(ssm_client, patch_window_id):
         return "patch manager window"
 
@@ -110,7 +111,7 @@ def _fetch_recent_events(ecs_client, cluster_name, service_name):
     return []
 
 
-def _handle_service_impaired(event, *, ecs_client, ssm_client, maintenance_marker_parameter_name, patch_maintenance_window_id, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
+def _handle_service_impaired(event, *, ecs_client, ssm_client, maintenance_marker_parameter_name, patch_maintenance_window_ids, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
     # The 'resources' list will contain a list of ECS service ARNs, e.g.
     #
     #     arn:aws:ecs:eu-west-1:1234567890:service/pipeline/image_inferrer
@@ -126,9 +127,10 @@ def _handle_service_impaired(event, *, ecs_client, ssm_client, maintenance_marke
 
         suppression_reason = _maintenance_suppression_reason(
             event,
+            cluster_name=cluster_name,
             ssm_client=ssm_client,
             marker_parameter_name=maintenance_marker_parameter_name,
-            patch_window_id=patch_maintenance_window_id,
+            patch_window_ids_by_cluster=patch_maintenance_window_ids,
         )
         if suppression_reason:
             _log_maintenance_suppressed("SERVICE_TASK_START_IMPAIRED", event)
@@ -168,7 +170,7 @@ def _handle_service_impaired(event, *, ecs_client, ssm_client, maintenance_marke
         }, sender)
 
 
-def _handle_deployment_failed(event, *, ecs_client, ssm_client, maintenance_marker_parameter_name, patch_maintenance_window_id, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
+def _handle_deployment_failed(event, *, ecs_client, ssm_client, maintenance_marker_parameter_name, patch_maintenance_window_ids, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
     # Same ARN structure as service action events:
     #   arn:aws:ecs:region:account:service/cluster/service
     for r in event["resources"]:
@@ -181,9 +183,10 @@ def _handle_deployment_failed(event, *, ecs_client, ssm_client, maintenance_mark
 
         suppression_reason = _maintenance_suppression_reason(
             event,
+            cluster_name=cluster_name,
             ssm_client=ssm_client,
             marker_parameter_name=maintenance_marker_parameter_name,
-            patch_window_id=patch_maintenance_window_id,
+            patch_window_ids_by_cluster=patch_maintenance_window_ids,
         )
         if suppression_reason:
             _log_maintenance_suppressed("SERVICE_DEPLOYMENT_FAILED", event)
@@ -222,7 +225,7 @@ def _handle_deployment_failed(event, *, ecs_client, ssm_client, maintenance_mark
         }, sender)
 
 
-def _handle_task_stopped(event, *, ssm_client, maintenance_marker_parameter_name, patch_maintenance_window_id, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
+def _handle_task_stopped(event, *, ssm_client, maintenance_marker_parameter_name, patch_maintenance_window_ids, name_prefix, aws_region, webhook_prod, webhook_lower, sender):
     detail = event["detail"]
 
     # Only alert for service tasks, not standalone tasks.
@@ -238,9 +241,10 @@ def _handle_task_stopped(event, *, ssm_client, maintenance_marker_parameter_name
 
     suppression_reason = _maintenance_suppression_reason(
         event,
+        cluster_name=cluster_name,
         ssm_client=ssm_client,
         marker_parameter_name=maintenance_marker_parameter_name,
-        patch_window_id=patch_maintenance_window_id,
+        patch_window_ids_by_cluster=patch_maintenance_window_ids,
     )
 
     console_url = (
@@ -404,7 +408,7 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
     webhook_prod = os.environ["SLACK_WEBHOOK_URL_PROD"]
     webhook_lower = os.environ["SLACK_WEBHOOK_URL_LOWER"]
     maintenance_marker_parameter_name = os.environ.get("MAINTENANCE_MARKER_PARAMETER_NAME", "")
-    patch_maintenance_window_id = os.environ.get("PATCH_MAINTENANCE_WINDOW_ID", "")
+    patch_maintenance_window_ids = json.loads(os.environ.get("PATCH_MAINTENANCE_WINDOW_IDS", "{}"))
 
     sess = boto3.Session()
     ecs_client = sess.client("ecs", region_name=aws_region)
@@ -420,7 +424,7 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
                 ecs_client=ecs_client,
                 ssm_client=ssm_client,
                 maintenance_marker_parameter_name=maintenance_marker_parameter_name,
-                patch_maintenance_window_id=patch_maintenance_window_id,
+                patch_maintenance_window_ids=patch_maintenance_window_ids,
                 name_prefix=name_prefix,
                 aws_region=aws_region,
                 webhook_prod=webhook_prod,
@@ -433,7 +437,7 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
                 ecs_client=ecs_client,
                 ssm_client=ssm_client,
                 maintenance_marker_parameter_name=maintenance_marker_parameter_name,
-                patch_maintenance_window_id=patch_maintenance_window_id,
+                patch_maintenance_window_ids=patch_maintenance_window_ids,
                 name_prefix=name_prefix,
                 aws_region=aws_region,
                 webhook_prod=webhook_prod,
@@ -445,7 +449,7 @@ def main(event, _ctxt=None, *, sender: Optional[SlackSender] = None):
             event,
             ssm_client=ssm_client,
             maintenance_marker_parameter_name=maintenance_marker_parameter_name,
-            patch_maintenance_window_id=patch_maintenance_window_id,
+            patch_maintenance_window_ids=patch_maintenance_window_ids,
             name_prefix=name_prefix,
             aws_region=aws_region,
             webhook_prod=webhook_prod,

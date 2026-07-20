@@ -12,7 +12,7 @@ resource "aws_lambda_function" "ecs_alert" {
       SLACK_WEBHOOK_URL_PROD            = var.slack_webhook_url_prod
       SLACK_WEBHOOK_URL_LOWER           = var.slack_webhook_url_lower
       MAINTENANCE_MARKER_PARAMETER_NAME = var.maintenance_marker_parameter_name
-      PATCH_MAINTENANCE_WINDOW_ID       = var.patch_maintenance_window_id
+      PATCH_MAINTENANCE_WINDOW_IDS      = jsonencode(var.patch_maintenance_window_ids)
     }
   }
 

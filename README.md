@@ -69,8 +69,13 @@ module "ecs_alerts" {
   slack_webhook_url_lower = var.slack_webhook_url_lower
 
   # Optional: suppress alerts while the SSM patch manager's window is actively
-  # patching/rebooting instances, instead of guessing a fixed clock range
-  patch_maintenance_window_id = module.patch_manager.maintenance_window_id
+  # patching/rebooting instances, instead of guessing a fixed clock range.
+  # Keyed by exact ECS cluster name — one Lambda can cover clusters from
+  # more than one environment/patch window this way.
+  patch_maintenance_window_ids = {
+    "myapp-cluster-uat" = module.patch_manager_uat.maintenance_window_id
+    "myapp-cluster"     = module.patch_manager_prod.maintenance_window_id
+  }
 
   # Optional: suppress alerts for ad hoc maintenance via an SSM parameter
   maintenance_marker_parameter_name = "/myapp/maintenance-marker"
@@ -92,7 +97,7 @@ module "ecs_alerts" {
 
 Slack alerts can be suppressed while maintenance is happening. Two independent signals feed into the same suppression check — either one being active is enough to suppress:
 
-1. **Patch manager window** — `patch_maintenance_window_id` set to the ID of an SSM Maintenance Window, e.g. the `maintenance_window_id` output of [`terraform-aws-ssm-patch-manager`](https://github.com/antero-software/terraform-aws-ssm-patch-manager). The Lambda checks whether that window currently has an execution `IN_PROGRESS`, so suppression tracks real patch/reboot activity instead of a guessed clock range — if a patch run finishes early or runs long, the suppression window follows it exactly.
+1. **Patch manager window** — `patch_maintenance_window_ids` maps an exact ECS cluster name to the ID of an SSM Maintenance Window, e.g. the `maintenance_window_id` output of [`terraform-aws-ssm-patch-manager`](https://github.com/antero-software/terraform-aws-ssm-patch-manager). For the cluster an alert is about, the Lambda looks up its mapped window and checks whether it currently has an execution `IN_PROGRESS`, so suppression tracks real patch/reboot activity instead of a guessed clock range — if a patch run finishes early or runs long, the suppression window follows it exactly. A map (rather than a single ID) lets one Lambda deployment correctly suppress alerts for clusters that belong to different environments/patch windows (e.g. a Lambda deployed once per AWS account, covering both a uat and a prod cluster with separate patch schedules). A cluster not present in the map is simply never suppressed by this signal.
 2. **Manual marker** — `maintenance_marker_parameter_name` set to an SSM Parameter Store parameter name. Set the parameter to a truthy value (`true`/`1`/`active`/`on`/`yes`) to suppress ad hoc, outside any schedule.
 
 Both are optional and off by default.
@@ -118,7 +123,7 @@ Both are optional and off by default.
 | `aws_region`               | `string` | `ap-southeast-2` | no       | AWS region                                                |
 | `slack_webhook_url_prod`   | `string` | —                | yes      | Slack webhook for prod alerts (clusters containing `prod`)|
 | `slack_webhook_url_lower`  | `string` | —                | yes      | Slack webhook for lower environment alerts (sensitive)    |
-| `patch_maintenance_window_id` | `string` | `""`          | no       | SSM Maintenance Window ID to suppress alerts while it has an execution in progress (e.g. from `terraform-aws-ssm-patch-manager`) |
+| `patch_maintenance_window_ids` | `map(string)` | `{}`      | no       | Exact ECS cluster name -> SSM Maintenance Window ID; suppresses alerts for that cluster while its window has an execution in progress (e.g. from `terraform-aws-ssm-patch-manager`) |
 | `maintenance_marker_parameter_name` | `string` | `""`   | no       | SSM Parameter Store parameter name for manual ad hoc suppression |
 
 ## Outputs
